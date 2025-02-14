@@ -1,19 +1,14 @@
-# 🎈 Blank app template
+# Brooklyn Women's Exchange - Streamlit App
 
-A simple Streamlit app template for you to modify!
+This is a basic Streamlit app that allows users to upload PDF files for analysis. 
 
-[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://blank-app-template.streamlit.app/)
+## Features
+- Upload PDF files via a user-friendly interface.
+- Displays uploaded file information and provides a placeholder for downstream analytics.
 
-### How to run it on your own machine
+## Installation
 
-1. Install the requirements
-
-   ```
-   $ pip install -r requirements.txt
-   ```
-
-2. Run the app
-
-   ```
-   $ streamlit run streamlit_app.py
-   ```
+1. Clone the repository:
+   ```bash
+   git clone <your-repo-url>
+   cd brooklyn_exchange_app
