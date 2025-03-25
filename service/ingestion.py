@@ -1,102 +1,112 @@
-import fitz  # PyMuPDF for PDF processing
+from io import BytesIO
+
+import fitz
 import pandas as pd
 import re
 
-def process_pdf(pdf_path):
+def process_pdf(uploaded_file):
     """
-    Extract text from the PDF, process it, and return processed DataFrame,
-    account totals for the donut chart, and item sales for the bar chart.
+    Extract text from a PDF file object, clean up duplicate headers, and process data.
     """
-    # Extract text from the PDF
-    doc = fitz.open(pdf_path)
-    text = ""
-    for page_num in range(len(doc)):
-        text += doc[page_num].get_text()
+    try:
+        # Open the PDF directly from bytes instead of a file path
+        pdf_bytes = BytesIO(uploaded_file.read())  # Convert uploaded file to byte stream
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")  # Open from byte stream
 
-    # Convert text to DataFrame
-    lines = text.split("\n")
-    df = pd.DataFrame(lines, columns=["Content"])
+        all_lines = [line for page in doc for line in page.get_text().split("\n")]
+        df = pd.DataFrame(all_lines, columns=["Content"])
 
-    # Print the extracted DataFrame for debugging
-    print("Initial DataFrame (Extracted from PDF):")
-    print(df.head(20))  # Print the first 20 rows for inspection
+        df_cleaned = remove_duplicate_headers(df)
+        processed_df = process_data(df_cleaned)
 
-    # Process the data
-    processed_df = process_data(df)
+        return processed_df
+    except Exception as e:
+        raise RuntimeError(f"Error processing PDF: {e}")
 
-    # Group by Account Number for donut chart
-    account_total_cost = processed_df.groupby('Account Number')['Total Cost'].sum()
+    # **Step 1: Remove repeated headers across pages**
+    df_cleaned = remove_duplicate_headers(df)
 
-    # Group by Item Number for bar chart
-    item_sales = processed_df.groupby('Item Number').agg({'Total Cost': 'sum', 'Count': 'sum'}).reset_index()
+    # **Step 2: Process cleaned data**
+    processed_df = process_data(df_cleaned)
 
-    return processed_df, account_total_cost, item_sales
+    return processed_df
+
+def remove_duplicate_headers(df):
+    """
+    Identifies and removes duplicate column headers that appear across pages.
+    """
+    headers = ["Customer Name", "Account Number", "Item Name", "Item Number", "Price", "Date Sold"]
+
+    cleaned_lines = []
+    seen_headers = False  # Flag to track if we’ve seen the headers before
+
+    for line in df["Content"]:
+        if all(header in line for header in headers):  # If line contains all column headers
+            if seen_headers:  # Skip duplicate headers after the first occurrence
+                continue
+            seen_headers = True  # Mark headers as seen
+        cleaned_lines.append(line)  # Add the valid line
+
+    # Convert cleaned data back into a DataFrame
+    return pd.DataFrame(cleaned_lines, columns=["Content"])
 
 def process_data(df):
     """
-    Process the extracted PDF data and return a structured DataFrame.
+    Process extracted and cleaned PDF data ensuring items are assigned to correct customers.
     """
     rows = []
-    current_account_number = None
-    current_customer_name = None
-    item_data = []
+    product_data = []  # Store items until assigned
+    current_customer = None
+    current_account = None
 
     for idx, row in df.iterrows():
-        content = row['Content']
-        content = content.strip()
+        content = row["Content"].strip()
 
-        # Step 1: Detect customer name
-        if re.match(r"^[A-Z][a-z]+(\s[A-Z][a-z]+)*$", content) and "TOTAL" not in content:
-            if current_account_number is not None and item_data:
-                for item in item_data:
-                    rows.append(item + [current_customer_name, current_account_number])
-            current_customer_name = content
-            item_data = []
-            continue
+        # **Step 1: Detect customers BEFORE processing items**
+        if re.match(r"^[A-Za-z\s,.\(\)&'-]+$", content) and idx + 1 < len(df):
+            potential_account = df.iloc[idx + 1]["Content"].strip()
+            if re.match(r"^\d{3,5}$", potential_account):  # Ensure account number format
+                # Assign items to the previous customer before changing
+                if current_customer and current_account and product_data:
+                    for item in product_data:
+                        rows.append([current_customer, current_account] + item)
+                    product_data = []  # Reset items for the new customer
 
-        # Step 2: Detect account number (3 or 4 digits)
-        elif re.match(r"^\d{3,4}$", content):
-            if current_account_number is not None and item_data:
-                for item in item_data:
-                    rows.append(item + [current_customer_name, current_account_number])
-            current_account_number = content
-            continue
+                # Update new customer info
+                current_customer = content
+                current_account = potential_account
+                print(f"Detected Customer: {current_customer}, Account: {current_account}")
+                continue  # Move to next line
 
-        # Step 3: Detect item number and its corresponding data
-        elif re.match(r"^\d{3}-\d{2,4}$", content):
-            item_number = content
+        # **Step 2: Detect item numbers and store them**
+        elif re.match(r"^\d{1,5}-[\d]+$", content.replace(",", "")):  # Allow up to 5 digits before "-"
+            item_number = content.replace(",", "")  # Remove commas from item numbers
+
             try:
-                # Item name is above the item number
-                item_name = df.iloc[idx - 1]['Content'].strip()
-                # Price is below the item number
-                price = df.iloc[idx + 1]['Content'].strip()
-                price = float(price.replace('$', '').replace(',', ''))  # Clean and convert price
-                item_data.append([item_name, item_number, price])
+                item_name = df.iloc[idx - 1]["Content"].strip()  # Item Name appears before Item Number
+                price_line = df.iloc[idx + 1]["Content"].strip()  # Price is after Item Number
+                price = float(price_line.replace("$", "").replace(",", "")) if "$" in price_line else None
+                date_sold = df.iloc[idx + 2]["Content"].strip()  # Date Sold appears after Price
+
+                # Store item but do not assign yet
+                product_data.append([item_name, item_number, price, date_sold])
+                print(f"Processing Item - Name: {item_name}, Number: {item_number}, Price: {price}, Date: {date_sold}")
+
             except Exception as e:
                 print(f"Error processing item data: {e}")
+
             continue
 
-    # Append any remaining items for the last account
-    if current_account_number is not None and item_data:
-        for item in item_data:
-            rows.append(item + [current_customer_name, current_account_number])
+    # **Store the last batch of customer data**
+    if current_customer and current_account and product_data:
+        for item in product_data:
+            rows.append([current_customer, current_account] + item)
 
-    # Create a DataFrame from the processed data
-    columns = ['Item Name', 'Item Number', 'Price', 'Customer Name', 'Account Number']
+    # Convert to DataFrame
+    columns = ["Crafter Name", "Account Number", "Item Name", "Item Number", "Price", "Date Sold"]
     result_df = pd.DataFrame(rows, columns=columns)
 
-    # Group by 'Account Number' and 'Item Number' to calculate totals and counts
-    result_df = result_df.groupby(
-        ['Item Name', 'Item Number', 'Customer Name', 'Account Number'], as_index=False
-    ).agg({
-        'Price': ['sum', 'count']  # Calculate total cost and count
-    })
-
-    # Flatten the multi-index columns
-    result_df.columns = ['Item Name', 'Item Number', 'Customer Name', 'Account Number', 'Total Cost', 'Count']
-
-    # Print the final processed DataFrame for debugging
     print("\nFinal Processed DataFrame:")
-    print(result_df.head(20))  # Print the first 20 rows for inspection
+    print(result_df.head(50))
 
     return result_df

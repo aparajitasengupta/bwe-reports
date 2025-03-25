@@ -2,3 +2,5 @@ streamlit           # For the Streamlit app
 pymupdf             # For PDF processing (PyMuPDF)
 pandas              # For data manipulation and analysis
 matplotlib          # For generating charts
+plotly
+kaleido
