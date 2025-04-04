@@ -1,28 +1,67 @@
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import matplotlib.dates as mdates
+import pandas as pd
 import streamlit as st
 import plotly.express as px
 import plotly.io as pio
 import io
 
 
+def categorize_account(account_number):
+    try:
+        num = int(account_number)
+    except:
+        return "Unknown"
+
+    if num >= 1000:
+        return "Wholesale"
+    elif 100 <= num < 200:
+        return "Food"
+    elif 200 <= num < 300:
+        return "Stationery/Jewelry/Accessories"
+    elif 300 <= num < 400:
+        return "Home/Linens"
+    elif 400 <= num < 500:
+        return "Toys"
+    elif 500 <= num < 600:
+        return "Clothing/Children’s"
+    elif 600 <= num < 700:
+        return "Sweaters/Knits"
+    elif 700 <= num < 800:
+        return "Holiday"
+    elif 800 <= num < 900:
+        return "Wood Items/Toys"
+    elif 900 <= num < 1000:
+        return "Former Consignor Items"
+    else:
+        return "Unknown"
+
 
 def plot_donut_chart(account_total_cost):
+    df = account_total_cost.reset_index()
+    df.columns = ["Account", "Total_Cost"]
+    df["Category"] = df["Account"].apply(categorize_account)
+
+    category_summary = df.groupby("Category")["Total_Cost"].sum().reset_index()
+
     fig = px.pie(
-        values=account_total_cost.values,
-        names=account_total_cost.index.astype(str),
+        category_summary,
+        values="Total_Cost",
+        names="Category",
         hole=0.5,
-        title="Total Cost per Account Number"
+        title="Total Cost by Category"
     )
 
     fig.update_traces(
-        textinfo="none",
-        hovertemplate="Account Number: %{label}<br>Total Cost: $%{value:.2f}<extra></extra>"
+        textinfo="percent+label",
+        hovertemplate="Category: %{label}<br>Total Cost: $%{value:.2f}<extra></extra>"
     )
 
-    fig.update_layout(width=600, height=475)
+    fig.update_layout(width=600, height=500)
     st.plotly_chart(fig, use_container_width=True)
+
+    # PNG Download
     buf = io.BytesIO()
     pio.write_image(fig, buf, format='png')
     st.download_button(
@@ -33,26 +72,41 @@ def plot_donut_chart(account_total_cost):
     )
 
 
-
 def plot_bar_chart(item_sales):
-    """
-    Plot and display a bar chart for item sales.
-    """
-    cmap = cm.summer
-    fig, ax = plt.subplots(figsize=(10, 6))
-    norm = plt.Normalize(item_sales['Total Cost'].min(), item_sales['Total Cost'].max())
-    bars = ax.bar(item_sales['Item Number'], item_sales['Total Cost'], color=cmap(norm(item_sales['Total Cost'])))
-    for bar, count in zip(bars, item_sales['Count']):
-        yval = bar.get_height()
-        ax.text(bar.get_x() + bar.get_width() / 2, yval + 1, str(count), ha='center', va='bottom', fontsize=10, fontweight='bold')
-    ax.set_title('Total Sales and Quantity Sold per Item Number', fontsize=14)
-    ax.set_xlabel('Item Number', fontsize=12)
-    ax.set_ylabel('Total Sales ($)', fontsize=12)
-    plt.xticks(rotation=45, ha="right")
-    st.pyplot(fig)
+    # Sort by total cost for height, but color by quantity sold
+    item_sales = item_sales.sort_values(by="Total_Cost", ascending=False)
 
+    fig = px.bar(
+        item_sales,
+        x="Item_Name",
+        y="Total_Cost",
+        color="Count",
+        color_continuous_scale="turbo",
+        hover_data={
+            "Item_Name": True,
+            "Total_Cost": ":$.2f",
+            "Count": True
+        },
+        labels={
+            "Item_Name": "Item",
+            "Total_Cost": "Total Item Cost ($)",
+            "Count": "Quantity Sold"
+        },
+        title="Total Item Cost per Item (Colored by Quantity Sold)"
+    )
+
+    fig.update_layout(
+        xaxis_tickangle=45,
+        xaxis_tickfont_size=8,
+        height=500,
+        margin=dict(t=50, b=150),
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+    # PNG download
     buf = io.BytesIO()
-    fig.savefig(buf, format="png")
+    pio.write_image(fig, buf, format="png")
     st.download_button(
         label="Download Chart as PNG",
         data=buf.getvalue(),
@@ -61,67 +115,39 @@ def plot_bar_chart(item_sales):
     )
 
 
-def plot_category_bar_chart(category_sales):
-    fig, ax1 = plt.subplots(figsize=(10, 12))
-    ax2 = ax1.twiny()
-    y = range(len(category_sales))
-    bar_height = 0.4
-
-    # 🎨 Colors
-    cost_color = "#FF6B6B"
-    count_color = "lightgreen"
-
-    ax1.barh([i - bar_height / 2 for i in y], category_sales["Total Cost"], height=bar_height,
-             label="Total Cost ($)", color=cost_color)
-    ax2.barh([i + bar_height / 2 for i in y], category_sales["Count"], height=bar_height,
-             label="Count", color=count_color)
-
-    ax1.set_ylabel("Item Name")
-    ax1.set_xlabel("Total Sales ($)", color=cost_color)
-    ax2.set_xlabel("Quantity Sold", color=count_color)
-
-    ax1.set_yticks(y)
-    ax1.set_yticklabels(category_sales["Item Name"])
-
-    fig.legend(loc="upper right")
-    plt.title("Sales and Count by Item Category")
-    st.pyplot(fig, use_container_width=True)
-
-    # Download button
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png")
-    st.download_button(
-        label="Download Chart as PNG",
-        data=buf.getvalue(),
-        file_name="category_sales_chart.png",
-        mime="image/png"
-    )
-
 
 def plot_sales_over_time(sales_over_time):
-    fig, ax = plt.subplots(figsize=(10, 10.5))
-    ax.plot(sales_over_time.values, sales_over_time.index, marker="o")
+    fig = px.line(
+        sales_over_time.reset_index(),
+        x="Date Sold",
+        y="Price",
+        markers=True,
+        title="Total Sales Over Time",
+        labels={
+            "Date Sold": "Date",
+            "Price": "Total Sales ($)"
+        },
+        template="plotly_white"
+    )
 
-    ax.set_title("Total Sales Over Time", fontsize=14)
-    ax.set_xlabel("Total Sales ($)")
-    ax.set_ylabel("Date")
-    ax.grid(True)
+    fig.update_traces(
+        hovertemplate="<b>Date:</b> %{x|%b %d, %Y}<br><b>Total Sales:</b> $%{y:.2f}",
+        line=dict(color="steelblue", width=2),
+        marker=dict(size=7)
+    )
 
-    # Determine granularity of data (monthly vs daily)
-    date_range = sales_over_time.index.max() - sales_over_time.index.min()
-    if date_range.days > 60:
-        ax.yaxis.set_major_locator(mdates.MonthLocator(interval=1))
-        ax.yaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
-    else:
-        ax.yaxis.set_major_locator(mdates.DayLocator(interval=7))  # every 7 days
-        ax.yaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
+    fig.update_layout(
+        height=500,
+        xaxis=dict(tickformat="%b %d", tickangle=45),
+        yaxis=dict(title="Total Sales ($)"),
+        margin=dict(t=50, b=80),
+    )
 
-    fig.autofmt_xdate()  # Rotate if needed
-    st.pyplot(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True)
 
-    # Download button
+    # PNG Download
     buf = io.BytesIO()
-    fig.savefig(buf, format="png")
+    pio.write_image(fig, buf, format="png")
     st.download_button(
         label="Download Chart as PNG",
         data=buf.getvalue(),
@@ -129,8 +155,8 @@ def plot_sales_over_time(sales_over_time):
         mime="image/png"
     )
 
+
 def plot_crafter_bubble_chart(processed_df, top_n=20):
-    # Aggregate stats
     crafter_stats = (
         processed_df.groupby("Crafter Name")
         .agg(
@@ -150,14 +176,14 @@ def plot_crafter_bubble_chart(processed_df, top_n=20):
         size="Avg_Price",
         text="Crafter Name",
         color="Avg_Price",
-        color_continuous_scale=px.colors.sequential.Reds,
+        color_continuous_scale=px.colors.sequential.Viridis,
         hover_data={
             "Crafter Name": True,
             "Total_Sales": ":$.2f",
             "Quantity_Sold": True,
             "Avg_Price": ":$.2f"
         },
-        title="Crafter Performance Bubble Chart",
+        title="Crafter Performance",
         labels={
             "Quantity_Sold": "Quantity Sold",
             "Total_Sales": "Total Sales ($)",

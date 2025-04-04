@@ -1,7 +1,7 @@
 import pandas as pd
 import streamlit as st
 from service.ingestion import process_pdf
-from service.visualization import plot_donut_chart, plot_bar_chart, plot_category_bar_chart, plot_sales_over_time, plot_crafter_bubble_chart
+from service.visualization import plot_donut_chart, plot_bar_chart, plot_sales_over_time, plot_crafter_bubble_chart
 
 
 def main():
@@ -40,19 +40,19 @@ def main():
                 # Donut Chart: Total cost per account
                 account_total_cost = processed_df.groupby("Account Number")["Total Cost"].sum()
 
-                # Bar Chart: Total cost & item count per item number
                 item_sales = processed_df.groupby("Item Number").agg(
-                    {"Total Cost": "sum", "Item Name": "count"}).reset_index()
-                item_sales.rename(columns={"Item Name": "Count"}, inplace=True)
+                    Total_Cost=("Total Cost", "sum"),
+                    Count=("Item Name", "count"),
+                    Item_Name=("Item Name", "first")
+                ).reset_index()
 
-                # New Chart: Category-level (Item Name) analysis
-                category_sales = processed_df.groupby("Item Name").agg(
-                    {"Total Cost": "sum", "Item Number": "count"}).reset_index()
-                category_sales.rename(columns={"Item Number": "Count"}, inplace=True)
+                # Filter to only include items sold at least 3 times
+                item_sales = item_sales[item_sales["Count"] >= 3]
 
-                processed_df["Date Sold"] = pd.to_datetime(processed_df["Date Sold"])
-                sales_over_time = processed_df.groupby(processed_df["Date Sold"].dt.to_period("M"))["Price"].sum()
-                sales_over_time.index = sales_over_time.index.to_timestamp()
+                processed_df["Date Sold"] = pd.to_datetime(processed_df["Date Sold"], errors="coerce")
+                sales_over_time = processed_df.groupby("Date Sold")["Price"].sum().reset_index()
+                sales_over_time.columns = ["Date Sold", "Price"]
+                sales_over_time["Date Sold"] = pd.to_datetime(sales_over_time["Date Sold"])
 
                 # **Step 2: Render Charts**
                 st.write("## Visualizations")
@@ -73,23 +73,15 @@ def main():
                     else:
                         st.warning("Not enough data for bar chart.")
 
-                col1, col2 = st.columns(2)
 
-                with col1:
-                    st.write("### Sales by Item Category")
-                    if not category_sales.empty:
-                        plot_category_bar_chart(category_sales)
-                    else:
-                        st.warning("Not enough data for category-level chart.")
 
-                with col2:
-                    st.write("### Sales Over Time")
-                    if not sales_over_time.empty:
+                st.write("### Sales Over Time")
+                if not sales_over_time.empty:
                         plot_sales_over_time(sales_over_time)
-                    else:
+                else:
                         st.warning("Not enough data for time-series chart.")
 
-                st.write("### Crafter Performance (Bubble Chart)")
+                st.write("### Crafter Performance")
                 plot_crafter_bubble_chart(processed_df)
 
 
