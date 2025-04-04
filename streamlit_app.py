@@ -61,7 +61,7 @@ def main():
 
                 with col1:
                     if not account_total_cost.empty:
-                        st.write("### Total Cost per Account")
+                        st.write("### Total Cost per Category")
                         plot_donut_chart(account_total_cost)
                     else:
                         st.warning("Not enough data for donut chart.")
